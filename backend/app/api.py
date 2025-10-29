@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime,timezone
 import os
 from dotenv import load_dotenv
 
@@ -60,7 +60,7 @@ def register_device():
         'uuid': data['uuid'],
         'short_id': data.get('short_id'),  
         'metadata': data.get('metadata', {}),
-        'created_at': datetime.utcnow()
+        'registered_at': datetime.now(timezone.utc)
     }
     devices_collection.insert_one(new_device)
 

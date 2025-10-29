@@ -30,9 +30,9 @@ class RoomEntry(db.Model):
     exit_time = db.Column(db.DateTime)
     avg_rssi = db.Column(db.Integer)
 
-class Device(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    uuid = db.Column(db.String(100), unique=True, nullable = False)
-    metadata = db.Column(db.JSON, nullable= True)
-    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
+# class Device(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     uuid = db.Column(db.String(100), unique=True, nullable = False)
+#     metadata = db.Column(db.JSON, nullable= True)
+#     registered_at = db.Column(db.DateTime, default=datetime.utcnow)
 
