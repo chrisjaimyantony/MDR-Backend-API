@@ -3,8 +3,24 @@ from flask_cors import CORS
 from pymongo import MongoClient
 from datetime import datetime
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file
 
 MONGO_URI = os.environ.get("MONGO_URI")
+
+if not MONGO_URI:
+    # This check ensures you know immediately if the variable wasn't set during deployment
+    print("FATAL ERROR")
+    exit(1)
+
+try:
+    client = MongoClient(MONGO_URI)
+    client.admin.command('ping') # Good practice to verify connection immediately
+    print("Successfully connected to MongoDB Atlas.")
+except Exception as e:
+    print(f"ERROR: Could not connect to MongoDB Atlas: {e}")
+    exit(1)
 # -----------------------
 # Flask App Setup
 # -----------------------
@@ -14,9 +30,6 @@ CORS(app)  # Allow Android app to call Flask API
 # -----------------------
 # MongoDB Atlas Connection
 # -----------------------
-# MONGO_URI = "mongodb+srv://chrisjaimyantony_db_user:wmzacOeKu77KpBiL@mdr-cluster.ci4krd.mongodb.net/"
-MONGO_URI = "mongodb+srv://chrisjaimyantony_db_user:wmzacOeKu77KpBiL@mdr-cluster.ci4krd.mongodb.net/?retryWrites=true&w=majority&appName=MDR-Cluster"
-client = MongoClient(MONGO_URI)
 db = client['MDR']  # Database name
 devices_collection = db['devices']
 events_collection = db['ble_events']
@@ -45,6 +58,7 @@ def register_device():
 
     new_device = {
         'uuid': data['uuid'],
+        'short_id': data.get('short_id'),  # <-- Add this new line
         'metadata': data.get('metadata', {}),
         'created_at': datetime.utcnow()
     }
