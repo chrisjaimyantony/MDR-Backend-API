@@ -58,7 +58,7 @@ def register_device():
 
     new_device = {
         'uuid': data['uuid'],
-        'short_id': data.get('short_id'),  # <-- Add this new line
+        'short_id': data.get('short_id'),  
         'metadata': data.get('metadata', {}),
         'created_at': datetime.utcnow()
     }
