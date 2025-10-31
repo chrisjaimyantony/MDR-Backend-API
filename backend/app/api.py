@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
-from datetime import datetime,timezone
+from datetime import datetime, timezone, timedelta
 import os
 from dotenv import load_dotenv
 
 load_dotenv()  # Load environment variables from .env file
+IST = timezone(timedelta(hours=5, minutes=30))
 
 MONGO_URI = os.environ.get("MONGO_URI")
 
@@ -72,32 +73,28 @@ def register_device():
 # -----------------------
 @app.route('/api/ble_event', methods=['POST'])
 def add_ble_event():
-    """
-    Called by ESP32 when it detects a BLE UUID nearby.
-    Example JSON:
-    {
-        "uuid": "unique_device_uuid",
-        "beacon_id": "101",
-        "rssi": -70,
-        "timestamp": "2023-10-01T12:00:00"
-    }
-    """
     data = request.get_json()
-
     if not data or 'uuid' not in data or 'beacon_id' not in data:
         return jsonify({'error': 'Missing required fields'}), 400
 
-    # Store event in MongoDB
+    # Choose server time; if client provides 'timestamp', parse it if you trust it
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(IST)
+
     new_event = {
         'uuid': data['uuid'],
         'beacon_id': data['beacon_id'],
-        'rssi': data.get('rssi', None),
-        'timestamp': data.get('timestamp', datetime.utcnow().isoformat())
+        'rssi': data.get('rssi'),
+        # Persist both; ISO strings include offsets for clarity
+        'utc_timestamp': now_utc.isoformat(timespec='microseconds'),   # ...Z equivalent
+        'ist_timestamp': now_ist.isoformat(timespec='microseconds'),   # ...+05:30
     }
+    # Optionally also keep the raw client timestamp if provided
+    if 'timestamp' in data:
+        new_event['client_timestamp'] = data['timestamp']
+
     events_collection.insert_one(new_event)
-
     return jsonify({'success': True, 'message': 'BLE event recorded'}), 201
-
 
 # -----------------------
 # Check Device (ESP32 Beacon Verification)
