@@ -85,13 +85,11 @@ def add_ble_event():
         'uuid': data['uuid'],
         'beacon_id': data['beacon_id'],
         'rssi': data.get('rssi'),
-        # Persist both; ISO strings include offsets for clarity
-        'utc_timestamp': now_utc.isoformat(timespec='microseconds'),   # ...Z equivalent
-        'ist_timestamp': now_ist.isoformat(timespec='microseconds'),   # ...+05:30
+        'ist_timestamp': now_ist.isoformat(timespec='microseconds'),   
     }
     # Optionally also keep the raw client timestamp if provided
-    if 'timestamp' in data:
-        new_event['client_timestamp'] = data['timestamp']
+    # if 'timestamp' in data:
+    #     new_event['client_timestamp'] = data['timestamp']
 
     events_collection.insert_one(new_event)
     return jsonify({'success': True, 'message': 'BLE event recorded'}), 201
