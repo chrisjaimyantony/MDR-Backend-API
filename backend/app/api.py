@@ -77,7 +77,6 @@ def add_ble_event():
     if not data or 'uuid' not in data or 'beacon_id' not in data:
         return jsonify({'error': 'Missing required fields'}), 400
 
-    # Choose server time; if client provides 'timestamp', parse it if you trust it
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST)
 
@@ -85,14 +84,10 @@ def add_ble_event():
         'uuid': data['uuid'],
         'beacon_id': data['beacon_id'],
         'rssi': data.get('rssi'),
-        'ist_timestamp': now_ist.isoformat(timespec='microseconds'),   
+        'ist_timestamp': now_ist.isoformat(timespec='microseconds'),   # string, +05:30
     }
-    # Optionally also keep the raw client timestamp if provided
-    # if 'timestamp' in data:
-    #     new_event['client_timestamp'] = data['timestamp']
-
     events_collection.insert_one(new_event)
-    return jsonify({'success': True, 'message': 'BLE event recorded'}), 201
+    return jsonify({'success': True}), 201
 
 # -----------------------
 # Check Device (ESP32 Beacon Verification)
