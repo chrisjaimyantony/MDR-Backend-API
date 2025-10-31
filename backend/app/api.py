@@ -40,31 +40,23 @@ events_collection = db['ble_events']
 # -----------------------
 @app.route('/api/register_device', methods=['POST'])
 def register_device():
-    """
-    Called by Android app after generating a unique UUID.
-    Example JSON:
-    {
-        "uuid": "unique_device_uuid",
-        "metadata": {"model": "Pixel 5"}
-    }
-    """
     data = request.get_json()
-
     if not data or 'uuid' not in data:
         return jsonify({'error': 'Missing uuid field'}), 400
 
-    # Check if already exists
     if devices_collection.find_one({'uuid': data['uuid']}):
         return jsonify({'message': 'Device already registered'}), 200
 
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(IST)
+
     new_device = {
         'uuid': data['uuid'],
-        'short_id': data.get('short_id'),  
+        'short_id': data.get('short_id'),
         'metadata': data.get('metadata', {}),
-        'registered_at': datetime.now(timezone.utc)
+        'registered_at_ist': now_ist.isoformat(timespec='microseconds'),
     }
     devices_collection.insert_one(new_device)
-
     return jsonify({'success': True, 'message': 'Device registered successfully'}), 201
 
 
