@@ -34,6 +34,7 @@ CORS(app)  # Allow Android app to call Flask API
 db = client['MDR']  # Database name
 devices_collection = db['devices']
 events_collection = db['ble_events']
+presence_collection = db['presence']
 
 # -----------------------
 # Register Device (Android App)an
@@ -69,17 +70,91 @@ def add_ble_event():
     if not data or 'uuid' not in data or 'beacon_id' not in data:
         return jsonify({'error': 'Missing required fields'}), 400
 
+    uuid = data['uuid']
+    beacon_id = data['beacon_id']
+    rssi = data.get('rssi')
+
+    # Server time in both zones
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST)
 
+    # Optional anti-flap guard (seconds)
+    TOGGLE_GUARD_SEC = 8
+
+    # Find current presence for this person in this room
+    pres = presence_collection.find_one({'uuid': uuid, 'beacon_id': beacon_id})
+
+    event_type = None
+    if not pres or pres.get('state') == 'outside':
+        # First sighting or previously outside -> entry
+        event_type = 'entry'
+        presence_collection.update_one(
+            {'uuid': uuid, 'beacon_id': beacon_id},
+            {
+                '$set': {
+                    'state': 'inside',
+                    'last_event': 'entry',
+                    'last_seen_utc': now_utc.isoformat(timespec='microseconds'),
+                    'last_seen_ist': now_ist.isoformat(timespec='microseconds'),
+                    'last_rssi': rssi
+                }
+            },
+            upsert=True
+        )
+    else:
+        # Currently inside; check guard window to avoid rapid toggles
+        last_seen_utc_str = pres.get('last_seen_utc')
+        within_guard = False
+        if last_seen_utc_str:
+            try:
+                # Parse stored ISO with offset if present
+                last_seen_utc = datetime.fromisoformat(
+                    last_seen_utc_str.replace('Z', '+00:00')
+                )
+                within_guard = (now_utc - last_seen_utc).total_seconds() < TOGGLE_GUARD_SEC
+            except Exception:
+                within_guard = False
+
+        if within_guard:
+            # Ignore toggle; update heartbeat only
+            presence_collection.update_one(
+                {'uuid': uuid, 'beacon_id': beacon_id},
+                {'$set': {
+                    'last_seen_utc': now_utc.isoformat(timespec='microseconds'),
+                    'last_seen_ist': now_ist.isoformat(timespec='microseconds'),
+                    'last_rssi': rssi
+                }}
+            )
+            return jsonify({'success': True, 'message': 'heartbeat', 'suppressed': True}), 201
+
+        # Toggle to exit
+        event_type = 'exit'
+        presence_collection.update_one(
+            {'uuid': uuid, 'beacon_id': beacon_id},
+            {
+                '$set': {
+                    'state': 'outside',
+                    'last_event': 'exit',
+                    'last_seen_utc': now_utc.isoformat(timespec='microseconds'),
+                    'last_seen_ist': now_ist.isoformat(timespec='microseconds'),
+                    'last_rssi': rssi
+                }
+            }
+        )
+
+    # Persist the movement event history with explicit type
     new_event = {
-        'uuid': data['uuid'],
-        'beacon_id': data['beacon_id'],
-        'rssi': data.get('rssi'),
-        'ist_timestamp': now_ist.isoformat(timespec='microseconds'),   # string, +05:30
+        'uuid': uuid,
+        'beacon_id': beacon_id,
+        'rssi': rssi,
+        'type': event_type,  # "entry" or "exit"
+        'utc_timestamp': now_utc.isoformat(timespec='microseconds'),
+        'ist_timestamp': now_ist.isoformat(timespec='microseconds')
     }
     events_collection.insert_one(new_event)
-    return jsonify({'success': True}), 201
+
+    return jsonify({'success': True, 'type': event_type}), 201
+
 
 # -----------------------
 # Check Device (ESP32 Beacon Verification)
