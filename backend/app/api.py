@@ -33,7 +33,8 @@ CORS(app)  # Allow Android app to call Flask API
 # -----------------------
 db = client['MDR']  # Database name
 devices_collection = db['devices']
-events_collection = db['ble_events']
+entries_collection = db['ble_entries']
+exits_collection   = db['ble_exits']
 presence_collection = db['presence']
 
 # -----------------------
@@ -74,85 +75,74 @@ def add_ble_event():
     beacon_id = data['beacon_id']
     rssi = data.get('rssi')
 
-    # Server time in both zones
-    now_utc = datetime.now(timezone.utc)
-    now_ist = now_utc.astimezone(IST)
+    now_ist = datetime.now(IST)
+    ts_ist = now_ist.isoformat(timespec='microseconds')
+    # Helpful denormalized features for ML
+    day_ist = now_ist.strftime('%Y-%m-%d')
+    hour_ist = now_ist.strftime('%H')
 
-    # Optional anti-flap guard (seconds)
     TOGGLE_GUARD_SEC = 8
 
-    # Find current presence for this person in this room
     pres = presence_collection.find_one({'uuid': uuid, 'beacon_id': beacon_id})
-
+    write_collection = None
     event_type = None
+
     if not pres or pres.get('state') == 'outside':
-        # First sighting or previously outside -> entry
+        # Entry
         event_type = 'entry'
+        write_collection = entries_collection
         presence_collection.update_one(
             {'uuid': uuid, 'beacon_id': beacon_id},
-            {
-                '$set': {
-                    'state': 'inside',
-                    'last_event': 'entry',
-                    'last_seen_utc': now_utc.isoformat(timespec='microseconds'),
-                    'last_seen_ist': now_ist.isoformat(timespec='microseconds'),
-                    'last_rssi': rssi
-                }
-            },
+            {'$set': {
+                'state': 'inside',
+                'last_event': 'entry',
+                'last_seen_ist': ts_ist,
+                'last_rssi': rssi
+            }},
             upsert=True
         )
     else:
-        # Currently inside; check guard window to avoid rapid toggles
-        last_seen_utc_str = pres.get('last_seen_utc')
+        # Exit with anti-flap guard (compare IST)
         within_guard = False
-        if last_seen_utc_str:
+        last_seen_ist = pres.get('last_seen_ist')
+        if last_seen_ist:
             try:
-                # Parse stored ISO with offset if present
-                last_seen_utc = datetime.fromisoformat(
-                    last_seen_utc_str.replace('Z', '+00:00')
-                )
-                within_guard = (now_utc - last_seen_utc).total_seconds() < TOGGLE_GUARD_SEC
+                last_dt = datetime.fromisoformat(last_seen_ist.replace('Z', '+00:00'))
+                # last_dt already contains +05:30 if inserted by this API; fromisoformat handles it
+                diff = (now_ist - last_dt).total_seconds()
+                within_guard = diff < TOGGLE_GUARD_SEC
             except Exception:
                 within_guard = False
 
         if within_guard:
-            # Ignore toggle; update heartbeat only
+            # Update heartbeat only
             presence_collection.update_one(
                 {'uuid': uuid, 'beacon_id': beacon_id},
-                {'$set': {
-                    'last_seen_utc': now_utc.isoformat(timespec='microseconds'),
-                    'last_seen_ist': now_ist.isoformat(timespec='microseconds'),
-                    'last_rssi': rssi
-                }}
+                {'$set': {'last_seen_ist': ts_ist, 'last_rssi': rssi}}
             )
             return jsonify({'success': True, 'message': 'heartbeat', 'suppressed': True}), 201
 
-        # Toggle to exit
         event_type = 'exit'
+        write_collection = exits_collection
         presence_collection.update_one(
             {'uuid': uuid, 'beacon_id': beacon_id},
-            {
-                '$set': {
-                    'state': 'outside',
-                    'last_event': 'exit',
-                    'last_seen_utc': now_utc.isoformat(timespec='microseconds'),
-                    'last_seen_ist': now_ist.isoformat(timespec='microseconds'),
-                    'last_rssi': rssi
-                }
-            }
+            {'$set': {
+                'state': 'outside',
+                'last_event': 'exit',
+                'last_seen_ist': ts_ist,
+                'last_rssi': rssi
+            }}
         )
 
-    # Persist the movement event history with explicit type
-    new_event = {
+    doc = {
         'uuid': uuid,
         'beacon_id': beacon_id,
         'rssi': rssi,
-        'type': event_type,  # "entry" or "exit"
-        'utc_timestamp': now_utc.isoformat(timespec='microseconds'),
-        'ist_timestamp': now_ist.isoformat(timespec='microseconds')
+        'ist_timestamp': ts_ist,
+        'day_ist': day_ist,
+        'hour_ist': hour_ist
     }
-    events_collection.insert_one(new_event)
-
+    write_collection.insert_one(doc)
     return jsonify({'success': True, 'type': event_type}), 201
 
 
